@@ -1,7 +1,6 @@
 package com.bope;
 import com.bope.db.UserMongo;
 import com.bope.db.UsersListMongo;
-import com.bope.db.WordMongo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,12 +11,10 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
-import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import com.vdurmont.emoji.EmojiParser;
 
 import java.util.*;
 
@@ -28,6 +25,13 @@ public class DecryptoBot extends TelegramLongPollingBot {
         private UsersListMongo usersListMongo;
         protected final Map<Long, Game> games = new HashMap<>();
         private static final Logger LOG = LoggerFactory.getLogger(DecryptoBot.class);
+
+
+
+        private static final String RED_TEAM_EMOJI = ":closed_book:";
+        private static final String BLUE_TEAM_EMOJI = ":blue_book:";
+        private static final String CROSS_EMOJI = ":x:";
+        private static final String CHECK_MARK_EMOJI = ":white_check_mark:";
 
 
 
@@ -54,9 +58,6 @@ public class DecryptoBot extends TelegramLongPollingBot {
         @Override
         public void onUpdateReceived(Update update) {
 
-
-
-
                 long chatId;
                 CallbackQuery callbackQuery = update.getCallbackQuery();
                 if (callbackQuery != null) {
@@ -65,45 +66,48 @@ public class DecryptoBot extends TelegramLongPollingBot {
                         if (game != null) {
                                 String userName = callbackQuery.getFrom().getUserName();
                                 if (game.isUserPlayer(userName)) {
-                                        if (callbackQuery.getData().equals("CALLBACK_SHOW_WORDS"))
-                                                answerCallbackQuery(callbackQuery.getId(), game.getWordsListText(game.isPlayerBlue(userName)));
+                                        switch (callbackQuery.getData()) {
+                                                case "CALLBACK_SHOW_WORDS" :
+                                                        answerCallbackQuery(callbackQuery.getId(), game.getWordsListText(game.isPlayerBlue(userName)));
+                                                        break;
+                                                case "CALLBACK_SHOW_CODE" :
+                                                        if (game.getCurrentCap().equals(userName))
+                                                                answerCallbackQuery(callbackQuery.getId(), String.valueOf(game.getCurrentCode()));
+                                                        else
+                                                                answerCallbackQuery(callbackQuery.getId(), "You are not a captain now");
+                                                        break;
+                                                case "CALLBACK_SHOW_PROMPT" :
+                                                        if (game.isPromptSend())
+                                                                answerCallbackQuery(callbackQuery.getId(), game.getCurrentPrompt());
+                                                        else
+                                                                answerCallbackQuery(callbackQuery.getId(), "Waiting for prompt");
+                                                        break;
+                                        }
                                 }
-
                         }
-
                         return;
                 }
-
-
 
                 Message message = update.getMessage();
                 if (message == null)
                         return;
                 chatId = message.getChatId();
                 String text = message.getText();
-                User user = message.getFrom();
-
-
-                System.out.println(chatId + ": " + text);
-
+                String userName = message.getFrom().getUserName();
 
                 if (text.startsWith("/"))
                         text = text.substring(1);
 
-
-
                 if (text.equals("start")) {
-                        botStartCommand(chatId, user);
+                        botStartCommand(chatId, userName, message.getFrom().getId());
                         return;
                 }
-
-
 
                 if (text.startsWith("start")) {
                         text = text.substring(7);
 
-                        Set<UserMongo> blueTeam = new HashSet<>();
-                        Set<UserMongo> redTeam = new HashSet<>();
+                        Set<String> blueTeam = new HashSet<>();
+                        Set<String> redTeam = new HashSet<>();
                         Set<String> unregisteredUsers = new HashSet<>();
 
                         boolean isFirstLine = true;
@@ -116,9 +120,9 @@ public class DecryptoBot extends TelegramLongPollingBot {
                                         UserMongo userMongo = usersListMongo.findByUserName(player);
                                         if (userMongo != null) {
                                                 if (isFirstLine) {
-                                                        blueTeam.add(userMongo);
+                                                        blueTeam.add(userMongo.getUserName());
                                                 } else {
-                                                        redTeam.add(userMongo);
+                                                        redTeam.add(userMongo.getUserName());
                                                 }
                                         } else {
                                                 unregisteredUsers.add(player);
@@ -126,14 +130,6 @@ public class DecryptoBot extends TelegramLongPollingBot {
                                 }
                                 isFirstLine = false;
                         }
-
-                        System.out.println("first:");
-                        for (UserMongo u : blueTeam)
-                                System.out.print(u.getUserName() + " ");
-                        System.out.println("\nsecond:");
-                        for (UserMongo u : redTeam)
-                                System.out.print(u.getUserName() + " ");
-
 
                         if (!unregisteredUsers.isEmpty()) {
                                 StringBuilder sb = new StringBuilder("Unregistered users:\n");
@@ -148,51 +144,178 @@ public class DecryptoBot extends TelegramLongPollingBot {
                                 return;
                         }
 
-                        for (UserMongo userMongo : blueTeam) {
-                                if (redTeam.contains(userMongo)) {
+                        for (String user : blueTeam) {
+                                if (redTeam.contains(user)) {
                                         sendSimpleMessage("Every player should be presents in one team only!", chatId);
                                         return;
                                 }
                         }
                         startGame(new Game(chatId, blueTeam, redTeam));
+                        return;
                 }
 
+
+                Game game = games.get(chatId);
+                if (game == null)
+                        return;
+
+
+                if (text.equals("status")) {
+                        sendCurrentStatus(chatId);
+                        return;
+                }
+
+
+                if (game.getCurrentCap().equals(userName) && !game.isPromptSend()) {
+                        if (Game.isPromptCorrect(text)) {
+                                game.setCurrentPrompt(text);
+                                sendSimpleMessage("Prompts are correct", chatId);
+                        } else
+                                sendSimpleMessage("Incorrect prompts", chatId);
+                }
+
+
+
+                if (isTextCodeCorrect(text) && !game.getCurrentCap().equals(userName) && game.isPromptSend()) {
+                        int code = Integer.parseInt(text);
+
+
+                        if (game.isBlueTurn()) {
+                                if (game.isPlayerRed(userName) && !game.isOppositeCodeSet()) {
+                                        if (game.getCurrentCode() == code) {
+                                                if (game.isRedWin())
+                                                        gameOver(chatId, false);
+                                                else {
+                                                        game.setRedWin(true);
+                                                        sendSimpleMessage("Your answer is correct!\nNow is Red turn - captain is @" + game.getNextCap(), chatId);
+                                                }
+                                        } else {
+                                                game.setOppositeCodeSet(true);
+                                                sendSimpleMessage("Code is wrong!\nNow is Blue team try to guess", chatId);
+                                        }
+                                } else if (game.isPlayerBlue(userName) && game.isOppositeCodeSet()) {
+                                        if (game.getCurrentCode() == code) {
+                                                sendSimpleMessage("Code is correct!\nNow is Red turn: @" + game.getNextCap() + "'s turn.", chatId);
+                                        } else {
+                                                if (game.isBlueFail())
+                                                        gameOver(chatId, false);
+                                                else {
+                                                        game.setBlueFail(true);
+                                                        sendSimpleMessage("Your answer is wrong!\nNow is Red turn: @" + game.getNextCap() + "'s turn.", chatId);
+                                                }
+                                        }
+                                }
+                        } else {
+                                if (game.isPlayerBlue(userName) && !game.isOppositeCodeSet()) {
+                                        if (game.getCurrentCode() == code) {
+                                                if (game.isBlueWin())
+                                                        gameOver(chatId, true);
+                                                else {
+                                                        game.setBlueWin(true);
+                                                        sendSimpleMessage("Your answer is correct!\nNow is Blue turn - captain is @" + game.getNextCap(), chatId);
+                                                }
+                                        } else {
+                                                game.setOppositeCodeSet(true);
+                                                sendSimpleMessage("Code is wrong!\nNow is Red team try to guess", chatId);
+                                        }
+                                } else if (game.isPlayerRed(userName) && game.isOppositeCodeSet()) {
+                                        if (game.getCurrentCode() == code) {
+                                                sendSimpleMessage("Code is correct!\nNow is Blue turn: @" + game.getNextCap() + "'s turn.", chatId);
+                                        } else {
+                                                if (game.isRedFail())
+                                                        gameOver(chatId, true);
+                                                else {
+                                                        game.setRedFail(true);
+                                                        sendSimpleMessage("Your answer is wrong!\nNow is Blue turn: @" + game.getNextCap() + "'s turn.", chatId);
+                                                }
+                                        }
+                                }
+                        }
+                }
         }
 
 
 
-        private ArrayList<String> parsePrompts(String text) {
-                String[] arr = text.split("\n");
-                if (arr.length != 3)
-                        return null;
-                return new ArrayList<>(Arrays.asList(arr));
+
+
+        private void sendCurrentStatus(long chatId) {
+                Game game = games.get(chatId);
+                StringBuilder sb = new StringBuilder();
+
+                sb.append(" ").append(BLUE_TEAM_EMOJI).append(" Blue team");
+                if (game.isBlueWin())
+                        sb.append(CHECK_MARK_EMOJI);
+                if (game.isBlueFail())
+                        sb.append(CROSS_EMOJI);
+                sb.append(":\n");
+                for (String player : game.getBlueTeam())
+                        sb.append(" @").append(player);
+
+                sb.append("\n\n").append(RED_TEAM_EMOJI).append(" Red team");
+                if (game.isRedWin())
+                        sb.append(CHECK_MARK_EMOJI);
+                if (game.isRedFail())
+                        sb.append(CROSS_EMOJI);
+                sb.append(":\n");
+                for (String player : game.getRedTeam())
+                        sb.append(" @").append(player);
+
+                sb.append("\n\nNow is ");
+                sb.append(game.isBlueTurn() ? "Blue" : "Red");
+                sb.append(" Team's turn!\n@");
+                sb.append(game.getCurrentCap());
+                sb.append(" is current captain.\n\n");
+
+                sb.append("Blue prompts:\n");
+                sb.append("1. ").append(game.getBlueCodes().get(1)).append("\n");
+                sb.append("2. ").append(game.getBlueCodes().get(2)).append("\n");
+                sb.append("3. ").append(game.getBlueCodes().get(3)).append("\n");
+                sb.append("4. ").append(game.getBlueCodes().get(4)).append("\n\n");
+
+                sb.append("Red prompts:\n");
+                sb.append("1. ").append(game.getRedCodes().get(1)).append("\n");
+                sb.append("2. ").append(game.getRedCodes().get(2)).append("\n");
+                sb.append("3. ").append(game.getRedCodes().get(3)).append("\n");
+                sb.append("4. ").append(game.getRedCodes().get(4)).append("\n\n");
+
+                if (!game.isPromptSend()) {
+                        sb.append("Waiting for prompt from captain!");
+                } else {
+                        if ((game.isBlueTurn() && game.isOppositeCodeSet()) || (!game.isBlueTurn() && !game.isOppositeCodeSet()))
+                                sb.append("Waiting for code from Blue team!");
+                        else
+                                sb.append("Waiting for code from Red team!");
+                }
+
+                sendBoard(EmojiParser.parseToUnicode(sb.toString()), game.getChatId());
         }
 
+
+
+        private void gameOver(long chatId, boolean isBlueTeamWin) {
+                games.remove(chatId);
+                sendSimpleMessage("Game Over!\n" + (isBlueTeamWin ? "Blue" : "Red") + " team win!", chatId);
+        }
 
         private void startGame(Game game) {
                 games.put(game.getChatId(), game);
-                UserMongo userFirst = game.getCurrentCap();
-                sendBoard("Game has started! Black team starts!\n@" + userFirst.getUserName() + " please start!", game.getChatId());
+                sendBoard("Game has started! Black team starts!\n@" + game.getCurrentCap() + " please start!", game.getChatId());
         }
-
 
         private void sendBoard(String text, long chatId) {
                 List<List<InlineKeyboardButton>> buttons = new ArrayList<>();
-                List<InlineKeyboardButton> buttons0 = new ArrayList<>();
-                buttons0.add(new InlineKeyboardButton().setText("Show My Words").setCallbackData("CALLBACK_SHOW_WORDS"));
-
                 List<InlineKeyboardButton> buttons1 = new ArrayList<>();
-                buttons1.add(new InlineKeyboardButton().setText("1").setCallbackData("CALLBACK DATA 1"));
-                buttons1.add(new InlineKeyboardButton().setText("2").setCallbackData("CALLBACK DATA 2"));
-                buttons1.add(new InlineKeyboardButton().setText("3").setCallbackData("CALLBACK DATA 3"));
-                buttons1.add(new InlineKeyboardButton().setText("4").setCallbackData("CALLBACK DATA 4"));
+                buttons1.add(new InlineKeyboardButton().setText("Show My Words").setCallbackData("CALLBACK_SHOW_WORDS"));
 
                 List<InlineKeyboardButton> buttons2 = new ArrayList<>();
-                buttons2.add(new InlineKeyboardButton().setText("Show Code").setCallbackData("CALLBACK_SHOW_CODE"));
+                buttons2.add(new InlineKeyboardButton().setText("Show Current Prompt").setCallbackData("CALLBACK_SHOW_PROMPT"));
 
-                buttons.add(buttons0);
+                List<InlineKeyboardButton> buttons3 = new ArrayList<>();
+                buttons3.add(new InlineKeyboardButton().setText("Show Code").setCallbackData("CALLBACK_SHOW_CODE"));
+
                 buttons.add(buttons1);
                 buttons.add(buttons2);
+                buttons.add(buttons3);
 
                 InlineKeyboardMarkup markupKeyboard = new InlineKeyboardMarkup();
                 markupKeyboard.setKeyboard(buttons);
@@ -205,7 +328,6 @@ public class DecryptoBot extends TelegramLongPollingBot {
                 }
         }
 
-
         private boolean isTextCodeCorrect(String text) {
                 Set<Character> set = new HashSet<>();
                 for (char c : text.toCharArray())
@@ -216,9 +338,9 @@ public class DecryptoBot extends TelegramLongPollingBot {
                 return set.size() == 0;
         }
 
-        private void botStartCommand(long chatId, User user) {
-                if (chatId == user.getId() && usersListMongo.findByUserName(user.getUserName()) == null) {
-                        usersListMongo.save(new UserMongo(user.getUserName(), String.valueOf(user.getId())));
+        private void botStartCommand(long chatId, String userName, long userId) {
+                if (chatId == userId && usersListMongo.findByUserName(userName) == null) {
+                        usersListMongo.save(new UserMongo(userName, String.valueOf(userId)));
                 }
                 sendSimpleMessage("START_INSTRUCTION", chatId);
         }
