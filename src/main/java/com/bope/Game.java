@@ -76,13 +76,13 @@ public class Game {
     }
 
     public String getNextCap() {
+        addPrompts();
         if (isBlueTurn)
             round++;
         isBlueTurn = !isBlueTurn;
         currentCode = generateCode(isBlueTurn);
         isPromptSend = false;
         isOppositeCodeSet = false;
-        addPrompts();
         return getCurrentCap();
     }
 
@@ -225,7 +225,7 @@ public class Game {
         return redCodes;
     }
 
-    public void addPrompts() {
+    private void addPrompts() {
         ArrayList<String> prompts = parsePrompts(currentPrompt);
         for (int i = 0; i <= 2; i++) {
             int code = Integer.parseInt(String.valueOf(currentCode).substring(i, i+1));
@@ -250,6 +250,17 @@ public class Game {
         if (arr.length != 3)
             return null;
         return new ArrayList<>(Arrays.asList(arr));
+    }
+
+
+    public String getPreviousPrompts(boolean isBlue) {
+        StringBuilder sb = new StringBuilder();
+        HashMap<Integer, String> codes = isBlue ? getBlueCodes() : getRedCodes();
+        sb.append("1. ").append(codes.get(1)).append("\n");
+        sb.append("2. ").append(codes.get(2)).append("\n");
+        sb.append("3. ").append(codes.get(3)).append("\n");
+        sb.append("4. ").append(codes.get(4));
+        return (sb.toString().equals("1. \n2. \n3. \n4. ")) ? "No prompts yet" : sb.toString();
     }
 
     public static boolean isPromptCorrect(String text) {
