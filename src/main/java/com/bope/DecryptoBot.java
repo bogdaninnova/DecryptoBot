@@ -126,7 +126,7 @@ public class DecryptoBot extends TelegramLongPollingBot {
                         return;
                 }
 
-                if (text.startsWith("start")) {
+                if (text.startsWith("start ")) {
                         text = text.substring(7);
 
                         Set<String> blueTeam = new HashSet<>();
@@ -173,22 +173,19 @@ public class DecryptoBot extends TelegramLongPollingBot {
                                         return;
                                 }
                         }
-                        games.put(chatId, new Game(chatId, blueTeam, redTeam));
+                        games.put(chatId, new Game(blueTeam, redTeam));
                         sendBoard(chatId);
                         return;
                 }
-
 
                 Game game = games.get(chatId);
                 if (game == null)
                         return;
 
-
                 if (text.equals("status")) {
                         sendBoard(chatId);
                         return;
                 }
-
 
                 if (game.getCurrentCap().equals(userName) && !game.isPromptSend()) {
                         if (Game.isPromptCorrect(text)) {
@@ -198,63 +195,55 @@ public class DecryptoBot extends TelegramLongPollingBot {
                                 sendSimpleMessage(INCORRECT_PROMPT, chatId);
                 }
 
-
-
                 if (isTextCodeCorrect(text) && !game.getCurrentCap().equals(userName) && game.isPromptSend()) {
                         int code = Integer.parseInt(text);
-
 
                         if (game.isBlueTurn()) {
                                 if (game.isPlayerRed(userName) && !game.isOppositeCodeSet()) {
                                         if (game.getCurrentCode() == code) {
-                                                if (game.isRedWin())
-                                                        gameOver(chatId, false);
-                                                else {
-                                                        game.setRedWin(true);
-                                                        sendBoard(String.format(CORRECT_CODE, game.getNextCap()), chatId);
-                                                }
+                                                game.addRedWin();
+                                                game.nextCap();
+                                                if (game.getRedWins() != 2)
+                                                        sendBoard(CORRECT_CODE, chatId);
                                         } else {
                                                 game.setOppositeCodeSet(true);
                                                 sendBoard(WRONG_CODE, chatId);
                                         }
                                 } else if (game.isPlayerBlue(userName) && game.isOppositeCodeSet()) {
+                                        game.nextCap();
                                         if (game.getCurrentCode() == code) {
-                                                sendBoard(String.format(CORRECT_CODE, game.getNextCap()), chatId);
+                                                sendBoard(CORRECT_CODE, chatId);
                                         } else {
-                                                if (game.isBlueFail())
-                                                        gameOver(chatId, false);
-                                                else {
-                                                        game.setBlueFail(true);
-                                                        sendBoard(String.format(WRONG_CODE, game.getNextCap()), chatId);
-                                                }
+                                                game.addBlueFail();
+                                                if (game.getBlueFails() != 2)
+                                                        sendBoard(WRONG_CODE, chatId);
                                         }
                                 }
                         } else {
                                 if (game.isPlayerBlue(userName) && !game.isOppositeCodeSet()) {
                                         if (game.getCurrentCode() == code) {
-                                                if (game.isBlueWin())
-                                                        gameOver(chatId, true);
-                                                else {
-                                                        game.setBlueWin(true);
-                                                        sendBoard(String.format(CORRECT_CODE, game.getNextCap()), chatId);
-                                                }
+                                                game.addBlueWin();
+                                                game.nextCap();
+                                                if (game.getBlueWins() != 2)
+                                                        sendBoard(CORRECT_CODE, chatId);
                                         } else {
                                                 game.setOppositeCodeSet(true);
                                                 sendBoard(WRONG_CODE, chatId);
                                         }
                                 } else if (game.isPlayerRed(userName) && game.isOppositeCodeSet()) {
+                                        game.nextCap();
                                         if (game.getCurrentCode() == code) {
-                                                sendBoard(String.format(CORRECT_CODE, game.getNextCap()), chatId);
+                                                sendBoard(CORRECT_CODE, chatId);
                                         } else {
-                                                if (game.isRedFail())
-                                                        gameOver(chatId, true);
-                                                else {
-                                                        game.setRedFail(true);
-                                                        sendBoard(String.format(WRONG_CODE, game.getNextCap()), chatId);
-                                                }
+                                                game.addRedFail();
+                                                if (game.getRedFails() != 2)
+                                                        sendBoard(WRONG_CODE, chatId);
                                         }
                                 }
                         }
+                        if (game.getBlueWins() == 2 || game.getRedWins() == 2 || game.getBlueFails() == 2 || game.getRedFails() == 2)
+                                gameOver(chatId);
+
                 }
         }
 
@@ -268,26 +257,10 @@ public class DecryptoBot extends TelegramLongPollingBot {
                 Game game = games.get(chatId);
                 StringBuilder sb = new StringBuilder();
 
-                if (message.equals("")) {
-                        sb.append(BLUE_TEAM_EMOJI).append(" Blue team ");
-                        if (game.isBlueWin())
-                                sb.append(CHECK_MARK_EMOJI);
-                        if (game.isBlueFail())
-                                sb.append(CROSS_EMOJI);
-                        sb.append(": ");
-                        for (String player : game.getBlueTeam())
-                                sb.append(" @").append(player);
+                if (!message.equals(""))
+                        sb.append(message).append("\n");
 
-                        sb.append("\n").append(RED_TEAM_EMOJI).append(" Red team ");
-                        if (game.isRedWin())
-                                sb.append(CHECK_MARK_EMOJI);
-                        if (game.isRedFail())
-                                sb.append(CROSS_EMOJI);
-                        sb.append(": ");
-                        for (String player : game.getRedTeam())
-                                sb.append(" @").append(player);
-                } else
-                        sb.append(message);
+                sb.append(getTeamsScores(chatId));
 
                 sb.append("\nCaptain: ");
                 sb.append(game.isBlueTurn() ? BLUE_TEAM_EMOJI : RED_TEAM_EMOJI);
@@ -323,15 +296,51 @@ public class DecryptoBot extends TelegramLongPollingBot {
                 } catch (TelegramApiException e) {
                         e.printStackTrace();
                 }
-
-
-
-
         }
 
-        private void gameOver(long chatId, boolean isBlueTeamWin) {
+
+        private String getTeamsScores(long chatId) {
+                Game game = games.get(chatId);
+                StringBuilder sb = new StringBuilder();
+                sb.append(BLUE_TEAM_EMOJI).append(" Blue team ");
+                if (game.getBlueWins() == 1)
+                        sb.append(CHECK_MARK_EMOJI);
+                if (game.getBlueFails() == 1)
+                        sb.append(CROSS_EMOJI);
+
+                sb.append(": ");
+                for (String player : game.getBlueTeam())
+                        sb.append(" @").append(player);
+
+                sb.append("\n").append(RED_TEAM_EMOJI).append(" Red team ");
+                if (game.getRedWins() == 1)
+                        sb.append(CHECK_MARK_EMOJI);
+                if (game.getRedFails() == 1)
+                        sb.append(CROSS_EMOJI);
+                sb.append(": ");
+                for (String player : game.getRedTeam())
+                        sb.append(" @").append(player);
+                return sb.toString();
+        }
+
+        private void gameOver(long chatId) {
+                Game game = games.get(chatId);
+                sendSimpleMessage(
+                        EmojiParser.parseToUnicode(
+                                String.format(GAME_OVER, ((game.getRedFails() == 2 || game.getBlueWins() == 2) ? "Blue" : "Red")) +
+                                getTeamsScores(chatId) +
+                                "\n\n" + BLUE_TEAM_EMOJI + " Blue words:\n" +
+                                game.getWordsListText(true) +
+                                "\n\n" + RED_TEAM_EMOJI + " Red words:\n" +
+                                game.getWordsListText(false) +
+                                "\n\n" + BLUE_TEAM_EMOJI + " Blue prompts:\n" +
+                                game.getPreviousPrompts(true) +
+                                "\n\n" + RED_TEAM_EMOJI + " Red prompts:\n" +
+                                game.getPreviousPrompts(false)
+                        ),
+                        chatId
+                );
                 games.remove(chatId);
-                sendSimpleMessage(String.format(GAME_OVER, (isBlueTeamWin ? "Blue" : "Red")), chatId);
         }
 
         private boolean isTextCodeCorrect(String text) {

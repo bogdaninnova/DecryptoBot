@@ -7,14 +7,10 @@ import java.util.*;
 
 public class Game {
 
-
-    private final long chatId;
-
-
-    private boolean blueFail = false;
-    private boolean blueWin = false;
-    private boolean redFail = false;
-    private boolean redWin = false;
+    private int blueFails = 0;
+    private int blueWins = 0;
+    private int redFails = 0;
+    private int redWins = 0;
 
 
     private int currentCode;
@@ -40,8 +36,7 @@ public class Game {
     private final List<Integer> blueCodesList = new ArrayList<>();
     private final List<Integer> redCodesList = new ArrayList<>();
 
-    public Game(long chatId, Set<String> blueTeam, Set<String> redTeam) {
-        this.chatId = chatId;
+    public Game(Set<String> blueTeam, Set<String> redTeam) {
         allWordList = Main.ctx.getBean(WordsListMongo.class).findByLang("rus");
         this.blueTeam.addAll(blueTeam);
         this.redTeam.addAll(redTeam);
@@ -75,7 +70,7 @@ public class Game {
         return isBlueTurn ? blueTeam.get(round%blueTeam.size()) : redTeam.get(round%redTeam.size());
     }
 
-    public String getNextCap() {
+    public void nextCap() {
         addPrompts();
         if (isBlueTurn)
             round++;
@@ -83,7 +78,6 @@ public class Game {
         currentCode = generateCode(isBlueTurn);
         isPromptSend = false;
         isOppositeCodeSet = false;
-        return getCurrentCap();
     }
 
     private List<WordMongo> getWords() {
@@ -133,11 +127,6 @@ public class Game {
         return false;
     }
 
-
-    public long getChatId() {
-        return chatId;
-    }
-
     public String getWordsListText(boolean isBlue) {
         StringBuilder sb = new StringBuilder();
         int i = 1;
@@ -157,10 +146,6 @@ public class Game {
         return isBlueTurn;
     }
 
-    public boolean isRedTurn() {
-        return !isBlueTurn;
-    }
-
     public boolean isOppositeCodeSet() {
         return isOppositeCodeSet;
     }
@@ -169,36 +154,36 @@ public class Game {
         isOppositeCodeSet = oppositeCodeSet;
     }
 
-    public boolean isBlueFail() {
-        return blueFail;
+    public int getBlueFails() {
+        return blueFails;
     }
 
-    public void setBlueFail(boolean blueFail) {
-        this.blueFail = blueFail;
+    public void addBlueFail() {
+        this.blueFails++;
     }
 
-    public boolean isBlueWin() {
-        return blueWin;
+    public int getBlueWins() {
+        return blueWins;
     }
 
-    public void setBlueWin(boolean blueWin) {
-        this.blueWin = blueWin;
+    public void addBlueWin() {
+        this.blueWins++;
     }
 
-    public boolean isRedFail() {
-        return redFail;
+    public int getRedFails() {
+        return redFails;
     }
 
-    public void setRedFail(boolean redFail) {
-        this.redFail = redFail;
+    public void addRedFail() {
+        this.redFails++;
     }
 
-    public boolean isRedWin() {
-        return redWin;
+    public int getRedWins() {
+        return redWins;
     }
 
-    public void setRedWin(boolean redWin) {
-        this.redWin = redWin;
+    public void addRedWin() {
+        this.redWins++;
     }
 
     public boolean isPromptSend() {
@@ -225,7 +210,7 @@ public class Game {
         return redCodes;
     }
 
-    private void addPrompts() {
+    public void addPrompts() {
         ArrayList<String> prompts = parsePrompts(currentPrompt);
         for (int i = 0; i <= 2; i++) {
             int code = Integer.parseInt(String.valueOf(currentCode).substring(i, i+1));
